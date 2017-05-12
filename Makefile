@@ -56,10 +56,10 @@ vet:
 	@echo "+ $@"
 	@go vet -tags "${DOCKER_BUILDTAGS}" $(PKGS)
 
-fmt:
-	@echo "+ $@"
-	@test -z "$$(gofmt -s -l . 2>&1 | grep -v ^vendor/ | tee /dev/stderr)" || \
-		(echo >&2 "+ please format Go code with 'gofmt -s'" && false)
+#fmt:
+#	@echo "+ $@"
+#	@test -z "$$(gofmt -s -l . 2>&1 | grep -v ^vendor/ | tee /dev/stderr)" || \
+#		(echo >&2 "+ please format Go code with 'gofmt -s'" && false)
 
 lint:
 	@echo "+ $@"
@@ -71,9 +71,9 @@ build:
 	@echo "+ $@"
 	@go build -tags "${DOCKER_BUILDTAGS}" -v ${GO_LDFLAGS} $(PKGS)
 
-test:
-	@echo "+ $@"
-	@go test -test.short -tags "${DOCKER_BUILDTAGS}" $(PKGS)
+#test:
+#	@echo "+ $@"
+#	@go test -test.short -tags "${DOCKER_BUILDTAGS}" $(PKGS)
 
 test-full:
 	@echo "+ $@"

@@ -3,10 +3,12 @@ log:
   fields:
     service: registry
 storage:
-  cache:
-    blobdescriptor: inmemory
-  filesystem:
-    rootdirectory: /home/howard/test/
+  s3:
+    accesskey: AKIAJZYDVOU5NFUJLUTQ
+    secretkey: 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
+    region: us-west-1
+    bucket: howard-bucket-1
+
 http:
   addr: :5000
   headers:

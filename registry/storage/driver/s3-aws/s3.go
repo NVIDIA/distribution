@@ -79,6 +79,12 @@ var validRegions = map[string]struct{}{}
 // validObjectACLs contains known s3 object Acls
 var validObjectACLs = map[string]struct{}{}
 
+//hacky shits
+
+var storageParams =  map[string]interface{}{}
+
+
+
 //DriverParameters A struct that encapsulates all of the driver parameters after all values have been set
 type DriverParameters struct {
 	AccessKey                   string
@@ -144,6 +150,7 @@ func init() {
 type s3DriverFactory struct{}
 
 func (factory *s3DriverFactory) Create(parameters map[string]interface{}) (storagedriver.StorageDriver, error) {
+	storageParams= parameters
 	return FromParameters(parameters)
 }
 
@@ -487,6 +494,31 @@ func (d *driver) GetContent(ctx context.Context, path string) ([]byte, error) {
 
 // PutContent stores the []byte content at a location designated by "path".
 func (d *driver) PutContent(ctx context.Context, path string, contents []byte) error {
+
+	//test := d
+	newD,_ := FromParameters(storageParams)
+
+	if dri,ok := newD.StorageDriver.(*driver);!ok{
+
+	} else{
+		_, err := dri.S3.PutObject(&s3.PutObjectInput{
+			Bucket:               aws.String(dri.Bucket),
+			Key:                  aws.String(dri.s3Path(path)),
+			ContentType:          dri.getContentType(),
+			ACL:                  dri.getACL(),
+			ServerSideEncryption: dri.getEncryptionMode(),
+			SSEKMSKeyId:          dri.getSSEKMSKeyID(),
+			StorageClass:         dri.getStorageClass(),
+			Body:                 bytes.NewReader(contents),
+		})
+		return parseError(path, err)
+	}
+
+	return(nil)
+
+
+
+/*
 	_, err := d.S3.PutObject(&s3.PutObjectInput{
 		Bucket:               aws.String(d.Bucket),
 		Key:                  aws.String(d.s3Path(path)),
@@ -497,7 +529,7 @@ func (d *driver) PutContent(ctx context.Context, path string, contents []byte) e
 		StorageClass:         d.getStorageClass(),
 		Body:                 bytes.NewReader(contents),
 	})
-	return parseError(path, err)
+*/
 }
 
 // Reader retrieves an io.ReadCloser for the content stored at "path" with a
