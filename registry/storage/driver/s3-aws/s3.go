@@ -23,7 +23,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
+	"log"
+	"math/rand"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -38,6 +39,7 @@ import (
 	storagedriver "github.com/docker/distribution/registry/storage/driver"
 	"github.com/docker/distribution/registry/storage/driver/base"
 	"github.com/docker/distribution/registry/storage/driver/factory"
+	"os"
 )
 
 const driverName = "s3aws"
@@ -485,18 +487,71 @@ func (d *driver) Name() string {
 
 // GetContent retrieves the content stored at "path" as a []byte.
 func (d *driver) GetContent(ctx context.Context, path string) ([]byte, error) {
-	reader, err := d.Reader(ctx, path, 0)
-	if err != nil {
-		return nil, err
+	//stuff
+	fmt.Println("get" ,path)
+	newD,_ :=FromParameters(storageParams)
+
+	if dri,ok := newD.StorageDriver.(*driver);ok {
+
+		reader, err := dri.Reader(ctx, path, 0)
+		if err != nil {
+			return nil, err
+		}
+		return ioutil.ReadAll(reader)
 	}
-	return ioutil.ReadAll(reader)
+	return nil, nil
 }
 
+func TestLogging(){
+	f,err := os.OpenFile("testlog", os.O_RDWR| os.O_CREATE| os.O_APPEND, 0666)
+	var buf bytes.Buffer
+	log := log.New(&buf, "logger: ", log.Lshortfile)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	log.SetOutput(f)
+	log.Println("hi");
+
+}
+
+
+var counter = int64(0)
+var isNext=false
 // PutContent stores the []byte content at a location designated by "path".
 func (d *driver) PutContent(ctx context.Context, path string, contents []byte) error {
 
+	fmt.Println("put",path)
+	start:=time.Now()
+	/*
+	if temp,ok:=ctx.(*context.Traced);ok{
+		fmt.Println(temp)
+	}
+	*/
+	if isNext {
+		//perform changes
+		starting:=strings.Index(path,"repositories")
+		namespace:=path[starting+13:starting+15]
+
+		switch namespace{
+		case "n2":
+			storageParams["bucket"]="howard-bucket-2"
+			storageParams["accesskey"]="AKIAJOZ3AYZJI66JRETA"
+			storageParams["secretkey"]="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"
+			fmt.Println(storageParams)
+		case "n3":
+			storageParams["bucket"]="howard-bucket-3"
+			storageParams["accesskey"]="AKIAIZCWUKJF3O7WGHCA"
+			storageParams["secretkey"]="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"
+		}
+		isNext=false
+	}
+	//fmt.Println(path)
 	//test := d
+	//fmt.Println("%v",storageParams)
 	newD,_ := FromParameters(storageParams)
+	//end:=time.Since(start)
+	//fmt.Println("the driver instantiantion costs", end)
 
 	if dri,ok := newD.StorageDriver.(*driver);!ok{
 
@@ -511,6 +566,19 @@ func (d *driver) PutContent(ctx context.Context, path string, contents []byte) e
 			StorageClass:         dri.getStorageClass(),
 			Body:                 bytes.NewReader(contents),
 		})
+
+		elapsed:=time.Since(start)
+
+		pathIndex:=strings.Index(path,"latest/current/link")
+		if pathIndex!=-1{
+			fmt.Println("switch")
+			fmt.Println("time",counter)
+			counter=0
+			isNext=true
+		}else{
+			counter+=int64(elapsed)
+		}
+
 		return parseError(path, err)
 	}
 
