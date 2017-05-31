@@ -643,7 +643,7 @@ func (app *App) dispatcher(dispatch dispatchFunc) http.Handler {
 
 		// Add username to request logging
 		context.Context = ctxu.WithLogger(context.Context, ctxu.GetLogger(context.Context, auth.UserNameKey))
-
+		context.Context = ctxu.WithValue(context.Context,"URI",r.RequestURI)
 		// sync up context on the request.
 		r = r.WithContext(context)
 

@@ -1,0 +1,26 @@
+version: 0.1
+log:
+  fields:
+    service: registry
+storage:
+  s3:
+    accesskey: AKIAJ2Y6JRORRZI6ICSA
+    secretkey: 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
+    region: us-west-1
+    bucket: howard-bucket-1
+  delete:
+    enabled: true
+  cache:
+    blobdescriptor: redis
+
+http:
+  addr: :5002
+  headers:
+    X-Content-Type-Options: [nosniff]
+redis:
+    addr: localhost:6379
+health:
+  storagedriver:
+    enabled: true
+    interval: 10s
+    threshold: 3

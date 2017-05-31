@@ -24,7 +24,6 @@ import (
 	"strings"
 	"time"
 	"log"
-	"math/rand"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -502,7 +501,7 @@ func (d *driver) GetContent(ctx context.Context, path string) ([]byte, error) {
 	return nil, nil
 }
 
-func TestLogging(){
+func testLogging(){
 	f,err := os.OpenFile("testlog", os.O_RDWR| os.O_CREATE| os.O_APPEND, 0666)
 	var buf bytes.Buffer
 	log := log.New(&buf, "logger: ", log.Lshortfile)
@@ -528,24 +527,22 @@ func (d *driver) PutContent(ctx context.Context, path string, contents []byte) e
 		fmt.Println(temp)
 	}
 	*/
-	if isNext {
-		//perform changes
-		starting:=strings.Index(path,"repositories")
-		namespace:=path[starting+13:starting+15]
-
-		switch namespace{
-		case "n2":
-			storageParams["bucket"]="howard-bucket-2"
-			storageParams["accesskey"]="AKIAJOZ3AYZJI66JRETA"
-			storageParams["secretkey"]="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"
-			fmt.Println(storageParams)
-		case "n3":
-			storageParams["bucket"]="howard-bucket-3"
-			storageParams["accesskey"]="AKIAIZCWUKJF3O7WGHCA"
-			storageParams["secretkey"]="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"
-		}
-		isNext=false
+	//perform changes
+	split:= strings.Split(ctx.Value("URI").(string),"/")
+	namespace:=split[2]
+	fmt.Println(namespace)
+	switch namespace{
+	case "n2":
+		storageParams["bucket"]="howard-bucket-2"
+		storageParams["accesskey"]="AKIAJOZ3AYZJI66JRETA"
+		storageParams["secretkey"]="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"
+		fmt.Println(storageParams)
+	case "n3":
+		storageParams["bucket"]="howard-bucket-3"
+		storageParams["accesskey"]="AKIAIZCWUKJF3O7WGHCA"
+		storageParams["secretkey"]="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"
 	}
+
 	//fmt.Println(path)
 	//test := d
 	//fmt.Println("%v",storageParams)
@@ -574,7 +571,6 @@ func (d *driver) PutContent(ctx context.Context, path string, contents []byte) e
 			fmt.Println("switch")
 			fmt.Println("time",counter)
 			counter=0
-			isNext=true
 		}else{
 			counter+=int64(elapsed)
 		}
