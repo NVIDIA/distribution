@@ -487,6 +487,11 @@ func (d *driver) Name() string {
 // GetContent retrieves the content stored at "path" as a []byte.
 func (d *driver) GetContent(ctx context.Context, path string) ([]byte, error) {
 	//stuff
+	if test,ok :=ctx.Value("URI").(string); ok{
+		split:=strings.Split(test,"/")
+		namespace:=split[2]
+		setCredentials(namespace)
+	}
 	fmt.Println("get" ,path)
 	newD,_ :=FromParameters(storageParams)
 
@@ -516,39 +521,54 @@ func testLogging(){
 
 
 var counter = int64(0)
-var isNext=false
+
+//keep it clean i guess
+func setCredentials(namespace string) {
+
+	switch namespace{
+	case "n1":
+		storageParams["bucket"]="howard-bucket-2"
+		storageParams["accesskey"]="AKIAJOZ3AYZJI66JRETA"
+		storageParams["secretkey"]="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"
+		fmt.Println(storageParams)
+	case "n2":
+		storageParams["bucket"]="howard-bucket-3"
+		storageParams["accesskey"]="AKIAIZCWUKJF3O7WGHCA"
+		storageParams["secretkey"]="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"
+	case "n3":
+		storageParams["bucket"]="howard-bucket-2"
+		storageParams["accesskey"]="AKIAJOZ3AYZJI66JRETA"
+		storageParams["secretkey"]="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"
+		fmt.Println(storageParams)
+	case "n4":
+		storageParams["bucket"]="howard-bucket-3"
+		storageParams["accesskey"]="AKIAIZCWUKJF3O7WGHCA"
+		storageParams["secretkey"]="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"
+	case "n5":
+		storageParams["bucket"]="howard-bucket-2"
+		storageParams["accesskey"]="AKIAJOZ3AYZJI66JRETA"
+		storageParams["secretkey"]="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"
+		fmt.Println(storageParams)
+	case "n6":
+		storageParams["bucket"]="howard-bucket-3"
+		storageParams["accesskey"]="AKIAIZCWUKJF3O7WGHCA"
+		storageParams["secretkey"]="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"
+	}
+}
+
 // PutContent stores the []byte content at a location designated by "path".
 func (d *driver) PutContent(ctx context.Context, path string, contents []byte) error {
 
 	fmt.Println("put",path)
 	start:=time.Now()
-	/*
-	if temp,ok:=ctx.(*context.Traced);ok{
-		fmt.Println(temp)
-	}
-	*/
-	//perform changes
-	split:= strings.Split(ctx.Value("URI").(string),"/")
-	namespace:=split[2]
-	fmt.Println(namespace)
-	switch namespace{
-	case "n2":
-		storageParams["bucket"]="howard-bucket-2"
-		storageParams["accesskey"]="AKIAJOZ3AYZJI66JRETA"
-		storageParams["secretkey"]="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"
-		fmt.Println(storageParams)
-	case "n3":
-		storageParams["bucket"]="howard-bucket-3"
-		storageParams["accesskey"]="AKIAIZCWUKJF3O7WGHCA"
-		storageParams["secretkey"]="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"
+
+	if test,ok :=ctx.Value("URI").(string); ok{
+		split:=strings.Split(test,"/")
+		namespace:=split[2]
+		setCredentials(namespace)
 	}
 
-	//fmt.Println(path)
-	//test := d
-	//fmt.Println("%v",storageParams)
 	newD,_ := FromParameters(storageParams)
-	//end:=time.Since(start)
-	//fmt.Println("the driver instantiantion costs", end)
 
 	if dri,ok := newD.StorageDriver.(*driver);!ok{
 

@@ -15,6 +15,7 @@ storage:
 
 http:
   addr: :5002
+  secret: same
   headers:
     X-Content-Type-Options: [nosniff]
 redis:
