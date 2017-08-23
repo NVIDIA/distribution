@@ -13,6 +13,7 @@ package s3
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -22,6 +23,10 @@ import (
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/docker/distribution/registry/client/transport"
+	storagedriver "github.com/docker/distribution/registry/storage/driver"
+	"github.com/docker/distribution/registry/storage/driver/base"
+	"github.com/docker/distribution/registry/storage/driver/factory"
 	"io"
 	"io/ioutil"
 	"math"
@@ -31,12 +36,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/docker/distribution/context"
-	"github.com/docker/distribution/registry/client/transport"
-	storagedriver "github.com/docker/distribution/registry/storage/driver"
-	"github.com/docker/distribution/registry/storage/driver/base"
-	"github.com/docker/distribution/registry/storage/driver/factory"
 )
 
 const driverName = "s3aws"

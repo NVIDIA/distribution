@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/docker/distribution"
-	ctxu "github.com/docker/distribution/context"
+	dcontext "github.com/docker/distribution/context"
 	"github.com/docker/distribution/manifest/manifestlist"
 	"github.com/docker/distribution/manifest/schema1"
 	"github.com/docker/distribution/manifest/schema2"
@@ -22,8 +22,9 @@ import (
 // These constants determine which architecture and OS to choose from a
 // manifest list when downconverting it to a schema1 manifest.
 const (
-	defaultArch = "amd64"
-	defaultOS   = "linux"
+	defaultArch         = "amd64"
+	defaultOS           = "linux"
+	maxManifestBodySize = 4 << 20
 )
 
 // manifestDispatcher takes the request context and builds the
@@ -67,7 +68,7 @@ type manifestHandler struct {
 
 // GetManifest fetches the image manifest from the storage backend, if it exists.
 func (imh *manifestHandler) GetManifest(w http.ResponseWriter, r *http.Request) {
-	ctxu.GetLogger(imh).Debug("GetImageManifest")
+	dcontext.GetLogger(imh).Debug("GetImageManifest")
 	manifests, err := imh.Repository.Manifests(imh)
 	if err != nil {
 		imh.Errors = append(imh.Errors, err)
@@ -144,7 +145,7 @@ func (imh *manifestHandler) GetManifest(w http.ResponseWriter, r *http.Request) 
 	// matching the digest.
 	if imh.Tag != "" && isSchema2 && !supportsSchema2 {
 		// Rewrite manifest in schema1 format
-		ctxu.GetLogger(imh).Infof("rewriting manifest %s in schema1 format to support old client", imh.Digest.String())
+		dcontext.GetLogger(imh).Infof("rewriting manifest %s in schema1 format to support old client", imh.Digest.String())
 
 		manifest, err = imh.convertSchema2Manifest(schema2Manifest)
 		if err != nil {
@@ -152,7 +153,7 @@ func (imh *manifestHandler) GetManifest(w http.ResponseWriter, r *http.Request) 
 		}
 	} else if imh.Tag != "" && isManifestList && !supportsManifestList {
 		// Rewrite manifest in schema1 format
-		ctxu.GetLogger(imh).Infof("rewriting manifest list %s in schema1 format to support old client", imh.Digest.String())
+		dcontext.GetLogger(imh).Infof("rewriting manifest list %s in schema1 format to support old client", imh.Digest.String())
 
 		// Find the image manifest corresponding to the default
 		// platform
@@ -185,6 +186,8 @@ func (imh *manifestHandler) GetManifest(w http.ResponseWriter, r *http.Request) 
 			if err != nil {
 				return
 			}
+		} else {
+			imh.Digest = manifestDigest
 		}
 	}
 
@@ -251,7 +254,7 @@ func etagMatch(r *http.Request, etag string) bool {
 
 // PutManifest validates and stores a manifest in the registry.
 func (imh *manifestHandler) PutManifest(w http.ResponseWriter, r *http.Request) {
-	ctxu.GetLogger(imh).Debug("PutImageManifest")
+	dcontext.GetLogger(imh).Debug("PutImageManifest")
 	manifests, err := imh.Repository.Manifests(imh)
 	if err != nil {
 		imh.Errors = append(imh.Errors, err)
@@ -259,8 +262,9 @@ func (imh *manifestHandler) PutManifest(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var jsonBuf bytes.Buffer
-	if err := copyFullPayload(w, r, &jsonBuf, imh, "image manifest PUT", &imh.Errors); err != nil {
+	if err := copyFullPayload(imh, w, r, &jsonBuf, maxManifestBodySize, "image manifest PUT"); err != nil {
 		// copyFullPayload reports the error if necessary
+		imh.Errors = append(imh.Errors, v2.ErrorCodeManifestInvalid.WithDetail(err.Error()))
 		return
 	}
 
@@ -273,7 +277,7 @@ func (imh *manifestHandler) PutManifest(w http.ResponseWriter, r *http.Request) 
 
 	if imh.Digest != "" {
 		if desc.Digest != imh.Digest {
-			ctxu.GetLogger(imh).Errorf("payload digest does match: %q != %q", desc.Digest, imh.Digest)
+			dcontext.GetLogger(imh).Errorf("payload digest does match: %q != %q", desc.Digest, imh.Digest)
 			imh.Errors = append(imh.Errors, v2.ErrorCodeDigestInvalid)
 			return
 		}
@@ -356,7 +360,7 @@ func (imh *manifestHandler) PutManifest(w http.ResponseWriter, r *http.Request) 
 		// NOTE(stevvooe): Given the behavior above, this absurdly unlikely to
 		// happen. We'll log the error here but proceed as if it worked. Worst
 		// case, we set an empty location header.
-		ctxu.GetLogger(imh).Errorf("error building manifest url from digest: %v", err)
+		dcontext.GetLogger(imh).Errorf("error building manifest url from digest: %v", err)
 	}
 
 	w.Header().Set("Location", location)
@@ -433,7 +437,7 @@ func (imh *manifestHandler) applyResourcePolicy(manifest distribution.Manifest) 
 
 // DeleteManifest removes the manifest with the given digest from the registry.
 func (imh *manifestHandler) DeleteManifest(w http.ResponseWriter, r *http.Request) {
-	ctxu.GetLogger(imh).Debug("DeleteImageManifest")
+	dcontext.GetLogger(imh).Debug("DeleteImageManifest")
 
 	manifests, err := imh.Repository.Manifests(imh)
 	if err != nil {
