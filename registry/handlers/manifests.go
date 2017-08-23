@@ -29,11 +29,13 @@ const (
 // manifestDispatcher takes the request context and builds the
 // appropriate handler for handling manifest requests.
 func manifestDispatcher(ctx *Context, r *http.Request) http.Handler {
+
 	manifestHandler := &manifestHandler{
 		Context: ctx,
 	}
 	reference := getReference(ctx)
 	dgst, err := digest.Parse(reference)
+
 	if err != nil {
 		// We just have a tag
 		manifestHandler.Tag = reference

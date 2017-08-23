@@ -14,6 +14,14 @@ package s3
 import (
 	"bytes"
 	"fmt"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/credentials/ec2rolecreds"
+	"github.com/aws/aws-sdk-go/aws/ec2metadata"
+	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 	"io"
 	"io/ioutil"
 	"math"
@@ -23,15 +31,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/credentials/ec2rolecreds"
-	"github.com/aws/aws-sdk-go/aws/ec2metadata"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
 
 	"github.com/docker/distribution/context"
 	"github.com/docker/distribution/registry/client/transport"
@@ -79,6 +78,10 @@ var validRegions = map[string]struct{}{}
 // validObjectACLs contains known s3 object Acls
 var validObjectACLs = map[string]struct{}{}
 
+//hacky shits
+//stuff I'm adding. make work then make better
+var cache *Cache
+
 //DriverParameters A struct that encapsulates all of the driver parameters after all values have been set
 type DriverParameters struct {
 	AccessKey                   string
@@ -102,6 +105,8 @@ type DriverParameters struct {
 }
 
 func init() {
+	//init
+
 	for _, region := range []string{
 		"us-east-1",
 		"us-east-2",
@@ -144,6 +149,7 @@ func init() {
 type s3DriverFactory struct{}
 
 func (factory *s3DriverFactory) Create(parameters map[string]interface{}) (storagedriver.StorageDriver, error) {
+	cache, _ = Initialize(parameters)
 	return FromParameters(parameters)
 }
 
@@ -478,31 +484,80 @@ func (d *driver) Name() string {
 
 // GetContent retrieves the content stored at "path" as a []byte.
 func (d *driver) GetContent(ctx context.Context, path string) ([]byte, error) {
-	reader, err := d.Reader(ctx, path, 0)
-	if err != nil {
-		return nil, err
+
+	var params map[string]interface{}
+
+	if path, ok := ctx.Value("URI").(string); ok {
+		fmt.Print(path)
+
+		namespace := strings.Split(path, "/")[2]
+		params, _ = cache.getParams(namespace)
+
 	}
-	return ioutil.ReadAll(reader)
+	newD, _ := FromParameters(params)
+
+	if dri, ok := newD.StorageDriver.(*driver); ok {
+
+		reader, err := dri.Reader(ctx, path, 0)
+		if err != nil {
+			return nil, err
+		}
+		return ioutil.ReadAll(reader)
+	}
+	return nil, nil
 }
 
 // PutContent stores the []byte content at a location designated by "path".
 func (d *driver) PutContent(ctx context.Context, path string, contents []byte) error {
-	_, err := d.S3.PutObject(&s3.PutObjectInput{
-		Bucket:               aws.String(d.Bucket),
-		Key:                  aws.String(d.s3Path(path)),
-		ContentType:          d.getContentType(),
-		ACL:                  d.getACL(),
-		ServerSideEncryption: d.getEncryptionMode(),
-		SSEKMSKeyId:          d.getSSEKMSKeyID(),
-		StorageClass:         d.getStorageClass(),
-		Body:                 bytes.NewReader(contents),
-	})
-	return parseError(path, err)
+
+	var params map[string]interface{}
+
+	if path, ok := ctx.Value("URI").(string); ok {
+
+		namespace := strings.Split(path, "/")[2]
+		params, _ = cache.getParams(namespace)
+
+	}
+
+	newD, _ := FromParameters(params)
+
+	if dri, ok := newD.StorageDriver.(*driver); ok {
+
+		_, err := dri.S3.PutObject(&s3.PutObjectInput{
+			Bucket:               aws.String(dri.Bucket),
+			Key:                  aws.String(dri.s3Path(path)),
+			ContentType:          dri.getContentType(),
+			ACL:                  dri.getACL(),
+			ServerSideEncryption: dri.getEncryptionMode(),
+			SSEKMSKeyId:          dri.getSSEKMSKeyID(),
+			StorageClass:         dri.getStorageClass(),
+			Body:                 bytes.NewReader(contents),
+		})
+
+		return parseError(path, err)
+	}
+
+	return nil
 }
 
 // Reader retrieves an io.ReadCloser for the content stored at "path" with a
 // given byte offset.
 func (d *driver) Reader(ctx context.Context, path string, offset int64) (io.ReadCloser, error) {
+	var params map[string]interface{}
+
+	if path, ok := ctx.Value("URI").(string); ok {
+
+		namespace := strings.Split(path, "/")[2]
+		params, _ = cache.getParams(namespace)
+
+	}
+
+	newD, _ := FromParameters(params)
+	var tempDriver *driver
+	if dri, ok := newD.StorageDriver.(*driver); ok {
+		tempDriver = d
+		d = dri
+	}
 	resp, err := d.S3.GetObject(&s3.GetObjectInput{
 		Bucket: aws.String(d.Bucket),
 		Key:    aws.String(d.s3Path(path)),
@@ -516,12 +571,26 @@ func (d *driver) Reader(ctx context.Context, path string, offset int64) (io.Read
 
 		return nil, parseError(path, err)
 	}
+	d = tempDriver
 	return resp.Body, nil
 }
 
 // Writer returns a FileWriter which will store the content written to it
 // at the location designated by "path" after the call to Commit.
 func (d *driver) Writer(ctx context.Context, path string, append bool) (storagedriver.FileWriter, error) {
+	var params map[string]interface{}
+
+	if path, ok := ctx.Value("URI").(string); ok {
+
+		namespace := strings.Split(path, "/")[2]
+		params, _ = cache.getParams(namespace)
+
+	}
+
+	newD, _ := FromParameters(params)
+	if dri, ok := newD.StorageDriver.(*driver); ok {
+		d = dri
+	}
 	key := d.s3Path(path)
 	if !append {
 		// TODO (brianbland): cancel other uploads at this path
@@ -571,41 +640,68 @@ func (d *driver) Writer(ctx context.Context, path string, append bool) (storaged
 // Stat retrieves the FileInfo for the given path, including the current size
 // in bytes and the creation time.
 func (d *driver) Stat(ctx context.Context, path string) (storagedriver.FileInfo, error) {
-	resp, err := d.S3.ListObjects(&s3.ListObjectsInput{
-		Bucket:  aws.String(d.Bucket),
-		Prefix:  aws.String(d.s3Path(path)),
-		MaxKeys: aws.Int64(1),
-	})
-	if err != nil {
-		return nil, err
+	var params map[string]interface{}
+
+	if path, ok := ctx.Value("URI").(string); ok {
+
+		namespace := strings.Split(path, "/")[2]
+		params, _ = cache.getParams(namespace)
+
 	}
 
-	fi := storagedriver.FileInfoFields{
-		Path: path,
-	}
+	newD, _ := FromParameters(params)
 
-	if len(resp.Contents) == 1 {
-		if *resp.Contents[0].Key != d.s3Path(path) {
+	if dri, ok := newD.StorageDriver.(*driver); ok {
+		resp, err := dri.S3.ListObjects(&s3.ListObjectsInput{
+			Bucket:  aws.String(dri.Bucket),
+			Prefix:  aws.String(dri.s3Path(path)),
+			MaxKeys: aws.Int64(1),
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		fi := storagedriver.FileInfoFields{
+			Path: path,
+		}
+
+		if len(resp.Contents) == 1 {
+			if *resp.Contents[0].Key != dri.s3Path(path) {
+				fi.IsDir = true
+			} else {
+				fi.IsDir = false
+				fi.Size = *resp.Contents[0].Size
+				fi.ModTime = *resp.Contents[0].LastModified
+			}
+		} else if len(resp.CommonPrefixes) == 1 {
 			fi.IsDir = true
 		} else {
-			fi.IsDir = false
-			fi.Size = *resp.Contents[0].Size
-			fi.ModTime = *resp.Contents[0].LastModified
+			return nil, storagedriver.PathNotFoundError{Path: path}
 		}
-	} else if len(resp.CommonPrefixes) == 1 {
-		fi.IsDir = true
-	} else {
-		return nil, storagedriver.PathNotFoundError{Path: path}
-	}
 
-	return storagedriver.FileInfoInternal{FileInfoFields: fi}, nil
+		return storagedriver.FileInfoInternal{FileInfoFields: fi}, nil
+	}
+	return nil, nil
+
 }
 
 // List returns a list of the objects that are direct descendants of the given path.
 func (d *driver) List(ctx context.Context, opath string) ([]string, error) {
+	var params map[string]interface{}
 	path := opath
-	if path != "/" && path[len(path)-1] != '/' {
-		path = path + "/"
+
+	if path, ok := ctx.Value("URI").(string); ok {
+
+		namespace := strings.Split(path, "/")[2]
+		params, _ = cache.getParams(namespace)
+
+	}
+
+	newD, _ := FromParameters(params)
+	var tempDriver *driver
+	if dri, ok := newD.StorageDriver.(*driver); ok {
+		tempDriver = d
+		d = dri
 	}
 
 	// This is to cover for the cases when the rootDirectory of the driver is either "" or "/".
@@ -662,7 +758,7 @@ func (d *driver) List(ctx context.Context, opath string) ([]string, error) {
 			return nil, storagedriver.PathNotFoundError{Path: opath}
 		}
 	}
-
+	d = tempDriver
 	return append(files, directories...), nil
 }
 
@@ -670,10 +766,24 @@ func (d *driver) List(ctx context.Context, opath string) ([]string, error) {
 // object.
 func (d *driver) Move(ctx context.Context, sourcePath string, destPath string) error {
 	/* This is terrible, but aws doesn't have an actual move. */
-	if err := d.copy(ctx, sourcePath, destPath); err != nil {
-		return err
+	var params map[string]interface{}
+
+	if path, ok := ctx.Value("URI").(string); ok {
+		fmt.Print(path)
+
+		namespace := strings.Split(path, "/")[2]
+		params, _ = cache.getParams(namespace)
+
 	}
-	return d.Delete(ctx, sourcePath)
+	newD, _ := FromParameters(params)
+
+	if dri, ok := newD.StorageDriver.(*driver); ok {
+		if err := dri.copy(ctx, sourcePath, destPath); err != nil {
+			return err
+		}
+		return dri.Delete(ctx, sourcePath)
+	}
+	return nil
 }
 
 // copy copies an object stored at sourcePath to destPath.
@@ -778,6 +888,23 @@ func min(a, b int) int {
 // Delete recursively deletes all objects stored at "path" and its subpaths.
 // We must be careful since S3 does not guarantee read after delete consistency
 func (d *driver) Delete(ctx context.Context, path string) error {
+
+	var params map[string]interface{}
+
+	if path, ok := ctx.Value("URI").(string); ok {
+		fmt.Print(path)
+
+		namespace := strings.Split(path, "/")[2]
+		params, _ = cache.getParams(namespace)
+
+	}
+	newD, _ := FromParameters(params)
+	var tempDriver *driver
+	if dri, ok := newD.StorageDriver.(*driver); ok {
+		tempDriver = d
+		d = dri
+	}
+
 	s3Objects := make([]*s3.ObjectIdentifier, 0, listMax)
 	s3Path := d.s3Path(path)
 	listObjectsInput := &s3.ListObjectsInput{
@@ -830,12 +957,28 @@ ListLoop:
 			return err
 		}
 	}
+	d = tempDriver
+
 	return nil
 }
 
 // URLFor returns a URL which may be used to retrieve the content stored at the given path.
 // May return an UnsupportedMethodErr in certain StorageDriver implementations.
 func (d *driver) URLFor(ctx context.Context, path string, options map[string]interface{}) (string, error) {
+
+	var params map[string]interface{}
+
+	if path, ok := ctx.Value("URI").(string); ok {
+		fmt.Print(path)
+
+		namespace := strings.Split(path, "/")[2]
+		params, _ = cache.getParams(namespace)
+
+	}
+	newD, _ := FromParameters(params)
+	if dri, ok := newD.StorageDriver.(*driver); ok {
+		d = dri
+	}
 	methodString := "GET"
 	method, ok := options["method"]
 	if ok {
