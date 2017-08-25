@@ -104,7 +104,6 @@ type DriverParameters struct {
 }
 
 func init() {
-	//init
 
 	for _, region := range []string{
 		"us-east-1",
@@ -484,15 +483,12 @@ func (d *driver) Name() string {
 // GetContent retrieves the content stored at "path" as a []byte.
 func (d *driver) GetContent(ctx context.Context, path string) ([]byte, error) {
 
-	var params map[string]interface{}
+	params, err := getParamsFromContext(ctx)
 
-	if path, ok := ctx.Value("URI").(string); ok {
-		fmt.Print(path)
-
-		namespace := strings.Split(path, "/")[2]
-		params, _ = cache.getParams(namespace)
-
+	if err != nil {
+		return nil, err
 	}
+
 	newD, _ := FromParameters(params)
 
 	if dri, ok := newD.StorageDriver.(*driver); ok {
@@ -509,13 +505,10 @@ func (d *driver) GetContent(ctx context.Context, path string) ([]byte, error) {
 // PutContent stores the []byte content at a location designated by "path".
 func (d *driver) PutContent(ctx context.Context, path string, contents []byte) error {
 
-	var params map[string]interface{}
+	params, err := getParamsFromContext(ctx)
 
-	if path, ok := ctx.Value("URI").(string); ok {
-
-		namespace := strings.Split(path, "/")[2]
-		params, _ = cache.getParams(namespace)
-
+	if err != nil {
+		return err
 	}
 
 	newD, _ := FromParameters(params)
@@ -542,20 +535,18 @@ func (d *driver) PutContent(ctx context.Context, path string, contents []byte) e
 // Reader retrieves an io.ReadCloser for the content stored at "path" with a
 // given byte offset.
 func (d *driver) Reader(ctx context.Context, path string, offset int64) (io.ReadCloser, error) {
-	var params map[string]interface{}
+	params, err := getParamsFromContext(ctx)
 
-	if path, ok := ctx.Value("URI").(string); ok {
-
-		namespace := strings.Split(path, "/")[2]
-		params, _ = cache.getParams(namespace)
-
+	if err != nil {
+		return nil, err
 	}
 
 	newD, _ := FromParameters(params)
-	var tempDriver *driver
+
 	if dri, ok := newD.StorageDriver.(*driver); ok {
-		tempDriver = d
 		d = dri
+	} else {
+		return nil, fmt.Errorf("Unable to instantiate new driver")
 	}
 	resp, err := d.S3.GetObject(&s3.GetObjectInput{
 		Bucket: aws.String(d.Bucket),
@@ -570,25 +561,25 @@ func (d *driver) Reader(ctx context.Context, path string, offset int64) (io.Read
 
 		return nil, parseError(path, err)
 	}
-	d = tempDriver
 	return resp.Body, nil
 }
 
 // Writer returns a FileWriter which will store the content written to it
 // at the location designated by "path" after the call to Commit.
 func (d *driver) Writer(ctx context.Context, path string, append bool) (storagedriver.FileWriter, error) {
-	var params map[string]interface{}
 
-	if path, ok := ctx.Value("URI").(string); ok {
+	params, err := getParamsFromContext(ctx)
 
-		namespace := strings.Split(path, "/")[2]
-		params, _ = cache.getParams(namespace)
-
+	if err != nil {
+		return nil, err
 	}
 
 	newD, _ := FromParameters(params)
+
 	if dri, ok := newD.StorageDriver.(*driver); ok {
 		d = dri
+	} else {
+		return nil, fmt.Errorf("Unable to instantiate new driver")
 	}
 	key := d.s3Path(path)
 	if !append {
@@ -639,13 +630,11 @@ func (d *driver) Writer(ctx context.Context, path string, append bool) (storaged
 // Stat retrieves the FileInfo for the given path, including the current size
 // in bytes and the creation time.
 func (d *driver) Stat(ctx context.Context, path string) (storagedriver.FileInfo, error) {
-	var params map[string]interface{}
 
-	if path, ok := ctx.Value("URI").(string); ok {
+	params, err := getParamsFromContext(ctx)
 
-		namespace := strings.Split(path, "/")[2]
-		params, _ = cache.getParams(namespace)
-
+	if err != nil {
+		return nil, err
 	}
 
 	newD, _ := FromParameters(params)
@@ -680,27 +669,24 @@ func (d *driver) Stat(ctx context.Context, path string) (storagedriver.FileInfo,
 
 		return storagedriver.FileInfoInternal{FileInfoFields: fi}, nil
 	}
-	return nil, nil
+	return nil, fmt.Errorf("Unable to instantiate new driver")
 
 }
 
 // List returns a list of the objects that are direct descendants of the given path.
 func (d *driver) List(ctx context.Context, opath string) ([]string, error) {
-	var params map[string]interface{}
 	path := opath
+	params, err := getParamsFromContext(ctx)
 
-	if path, ok := ctx.Value("URI").(string); ok {
-
-		namespace := strings.Split(path, "/")[2]
-		params, _ = cache.getParams(namespace)
-
+	if err != nil {
+		return nil, err
 	}
 
 	newD, _ := FromParameters(params)
-	var tempDriver *driver
 	if dri, ok := newD.StorageDriver.(*driver); ok {
-		tempDriver = d
 		d = dri
+	} else {
+		return nil, fmt.Errorf("Unable to instantiate new driver")
 	}
 
 	// This is to cover for the cases when the rootDirectory of the driver is either "" or "/".
@@ -757,7 +743,6 @@ func (d *driver) List(ctx context.Context, opath string) ([]string, error) {
 			return nil, storagedriver.PathNotFoundError{Path: opath}
 		}
 	}
-	d = tempDriver
 	return append(files, directories...), nil
 }
 
@@ -765,14 +750,10 @@ func (d *driver) List(ctx context.Context, opath string) ([]string, error) {
 // object.
 func (d *driver) Move(ctx context.Context, sourcePath string, destPath string) error {
 	/* This is terrible, but aws doesn't have an actual move. */
-	var params map[string]interface{}
+	params, err := getParamsFromContext(ctx)
 
-	if path, ok := ctx.Value("URI").(string); ok {
-		fmt.Print(path)
-
-		namespace := strings.Split(path, "/")[2]
-		params, _ = cache.getParams(namespace)
-
+	if err != nil {
+		return err
 	}
 	newD, _ := FromParameters(params)
 
@@ -782,7 +763,7 @@ func (d *driver) Move(ctx context.Context, sourcePath string, destPath string) e
 		}
 		return dri.Delete(ctx, sourcePath)
 	}
-	return nil
+	return fmt.Errorf("Unable to instantiate new driver")
 }
 
 // copy copies an object stored at sourcePath to destPath.
@@ -888,20 +869,17 @@ func min(a, b int) int {
 // We must be careful since S3 does not guarantee read after delete consistency
 func (d *driver) Delete(ctx context.Context, path string) error {
 
-	var params map[string]interface{}
+	params, err := getParamsFromContext(ctx)
 
-	if path, ok := ctx.Value("URI").(string); ok {
-		fmt.Print(path)
-
-		namespace := strings.Split(path, "/")[2]
-		params, _ = cache.getParams(namespace)
-
+	if err != nil {
+		return err
 	}
+
 	newD, _ := FromParameters(params)
-	var tempDriver *driver
 	if dri, ok := newD.StorageDriver.(*driver); ok {
-		tempDriver = d
 		d = dri
+	} else {
+		return fmt.Errorf("Cannot instantiate new driver")
 	}
 
 	s3Objects := make([]*s3.ObjectIdentifier, 0, listMax)
@@ -956,7 +934,6 @@ ListLoop:
 			return err
 		}
 	}
-	d = tempDriver
 
 	return nil
 }
@@ -965,18 +942,16 @@ ListLoop:
 // May return an UnsupportedMethodErr in certain StorageDriver implementations.
 func (d *driver) URLFor(ctx context.Context, path string, options map[string]interface{}) (string, error) {
 
-	var params map[string]interface{}
+	params, err := getParamsFromContext(ctx)
 
-	if path, ok := ctx.Value("URI").(string); ok {
-		fmt.Print(path)
-
-		namespace := strings.Split(path, "/")[2]
-		params, _ = cache.getParams(namespace)
-
+	if err != nil {
+		return "", err
 	}
 	newD, _ := FromParameters(params)
 	if dri, ok := newD.StorageDriver.(*driver); ok {
 		d = dri
+	} else {
+		return "", fmt.Errorf("Unable to instantiate new driver")
 	}
 	methodString := "GET"
 	method, ok := options["method"]
@@ -1332,4 +1307,16 @@ func (w *writer) flushPart() error {
 	w.readyPart = w.pendingPart
 	w.pendingPart = nil
 	return nil
+}
+func getParamsFromContext(ctx context.Context) (map[string]interface{}, error) {
+	if path, ok := ctx.Value("URI").(string); ok {
+		namespace := strings.Split(path, "/")[2]
+		params, ok := cache.getParams(namespace)
+
+		if !ok {
+			return nil, fmt.Errorf("Failed to get parameters")
+		}
+		return params, nil
+	}
+	return nil, fmt.Errorf("Failed to get path")
 }

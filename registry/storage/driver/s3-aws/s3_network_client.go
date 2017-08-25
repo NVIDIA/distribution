@@ -3,11 +3,9 @@ package s3
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/pkg/errors"
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
 	"net/http"
-	"sync"
 	"time"
 )
 
@@ -19,10 +17,10 @@ import (
 type HTTPClientWrapper struct {
 	*http.Client
 
+	//Config contains information and credentials specific to a registry instance
 	Config *conf
 
 	//JWT allows the s3_cache to fetch credentials from AuthZ
-	//does this need to be a pointer?
 	JWT string
 }
 
@@ -38,10 +36,9 @@ type conf struct {
 	CacheExpiry int64 `yaml:"cacheExpiry"`
 }
 
-var lock sync.Mutex
-
 //getConfig searches for necessary access parameters on disk
 func getConfig() (*conf, error) {
+	//this will be some other path eventually...
 	bytes, err := ioutil.ReadFile("/home/howard/testConfigs/config.yaml")
 
 	if err != nil {
@@ -83,8 +80,7 @@ func NewClient() (*HTTPClientWrapper, error) {
 
 //getJWT returns the identifying JWT for the registry instance.
 func (client *HTTPClientWrapper) getJWT() (string, error) {
-	//that should be an error instead of _
-	//that can be handled later when i introduce proper error handling
+
 	req, err := http.NewRequest(
 		"GET",
 		client.Config.AuthNurl,
@@ -101,19 +97,18 @@ func (client *HTTPClientWrapper) getJWT() (string, error) {
 		bodyBytes, _ := ioutil.ReadAll(resp.Body)
 		return string(bodyBytes), nil
 	}
-	return "", errors.New("An unexpected error has occurred, a JWT cannot be fetched")
+	return "", fmt.Errorf("Non-200 response from authN")
 }
 
 //GetCredentials returns the AWS credentials for the specific namespace
-func (client *HTTPClientWrapper) GetCredentials(namespace string, channel chan *Credential) {
+func (client *HTTPClientWrapper) getCredentials(namespace string, channel chan *Credential) error {
 	req, _ := http.NewRequest(
 		"GET",
 		client.Config.AuthZurl,
 		nil,
 	)
-	fmt.Print("get credential cal")
 	req.Header.Set("namespace", namespace)
-	req.Header.Set("Authorization", "Bearer"+client.JWT)
+	req.Header.Set("Authorization", "Bearer "+client.JWT)
 	resp, _ := client.Do(req)
 
 	defer resp.Body.Close()
@@ -125,6 +120,9 @@ func (client *HTTPClientWrapper) GetCredentials(namespace string, channel chan *
 		credentials.ValidUntil = time.Now().Add(time.Duration(client.Config.CacheExpiry) * time.Second)
 
 		channel <- &credentials
+
+		return nil
 	}
+	return fmt.Errorf("Non-200 response from authZ")
 	//some form of timeout here would be good
 }
