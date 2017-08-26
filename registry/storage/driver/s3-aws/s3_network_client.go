@@ -1,8 +1,10 @@
 package s3
 
 import (
+	"crypto/rsa"
 	"encoding/json"
 	"fmt"
+	JWT "github.com/dgrijalva/jwt-go"
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
 	"net/http"
@@ -22,6 +24,9 @@ type HTTPClientWrapper struct {
 
 	//JWT allows the s3_cache to fetch credentials from AuthZ
 	JWT string
+
+	//JWTExpiry represents the expiry time of the current JWT in storage
+	JWTExpiry time.Time
 }
 
 type conf struct {
@@ -33,8 +38,17 @@ type conf struct {
 
 	AuthNurl string `yaml:"authNurl"`
 
-	CacheExpiry int64 `yaml:"cacheExpiry"`
+	CacheExpiry int `yaml:"cacheExpiry"`
+
+	PublicKeyurl string `yaml:"publicKeyurl"`
+
+	JWTValidityOffset int64 `yaml:"jwtValidityOffset"`
 }
+
+type token struct {
+	Token string `json:"token"`
+}
+
 
 //getConfig searches for necessary access parameters on disk
 func getConfig() (*conf, error) {
@@ -65,21 +79,16 @@ func NewClient() (*HTTPClientWrapper, error) {
 	}
 
 	client := &HTTPClientWrapper{
-		Client: &http.Client{},
-		Config: c,
+		Client:    &http.Client{},
+		Config:    c,
+		JWTExpiry: time.Time{},
 	}
-
-	jwt, err := client.getJWT()
-	if err != nil {
-		return nil, err
-	}
-	client.JWT = jwt
 
 	return client, nil
 }
 
 //getJWT returns the identifying JWT for the registry instance.
-func (client *HTTPClientWrapper) getJWT() (string, error) {
+func (client *HTTPClientWrapper) getJWT() (string, time.Time, error) {
 
 	req, err := http.NewRequest(
 		"GET",
@@ -87,7 +96,7 @@ func (client *HTTPClientWrapper) getJWT() (string, error) {
 		nil,
 	)
 	if err != nil {
-		return "", err
+		return "", time.Time{}, err
 	}
 	req.SetBasicAuth(client.Config.ClientID, client.Config.Secret)
 	resp, _ := client.Do(req)
@@ -95,13 +104,87 @@ func (client *HTTPClientWrapper) getJWT() (string, error) {
 	defer resp.Body.Close()
 	if resp.StatusCode == 200 {
 		bodyBytes, _ := ioutil.ReadAll(resp.Body)
-		return string(bodyBytes), nil
+
+		var t token
+		json.Unmarshal(bodyBytes,&t)
+
+		jwtExpiry, err := client.getJWTExpiry(t.Token)
+
+		if err != nil {
+			return "", time.Time{}, nil
+		}
+
+		return t.Token, jwtExpiry, nil
 	}
-	return "", fmt.Errorf("Non-200 response from authN")
+	return "", time.Time{}, fmt.Errorf("Non-200 response from authN, received %d instead", resp.StatusCode)
+}
+
+func (client *HTTPClientWrapper) getJWTExpiry(jwt string) (time.Time, error) {
+	token, err := JWT.ParseWithClaims(jwt,&JWT.StandardClaims{}, func(token *JWT.Token) (interface{}, error) {
+
+		pubkey, err := client.getPublicKey()
+		if err != nil {
+			return nil, err
+		}
+		return pubkey, err
+	})
+
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	if claims, ok := token.Claims.(*JWT.StandardClaims); ok && token.Valid {
+
+		return time.Now().Add(
+			time.Duration(
+				claims.ExpiresAt-claims.IssuedAt-client.Config.JWTValidityOffset) * time.Second), nil
+	}
+
+	if !token.Valid{
+		return  time.Time{},fmt.Errorf("Token invalid")
+	}else {
+		return time.Time{},fmt.Errorf("Claims malformed")
+	}
+}
+
+func (client *HTTPClientWrapper) getPublicKey() (*rsa.PublicKey, error) {
+	req, _ := http.NewRequest(
+		"GET",
+		client.Config.PublicKeyurl,
+		nil,
+	)
+	resp, _ := client.Do(req)
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 {
+		bodyBytes, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		pubkey, err := JWT.ParseRSAPublicKeyFromPEM(bodyBytes)
+		if err != nil {
+			return nil, err
+		}
+		return pubkey, err
+	}
+	return nil, fmt.Errorf("Unable to get publickey, received %d instead", resp.StatusCode)
 }
 
 //GetCredentials returns the AWS credentials for the specific namespace
-func (client *HTTPClientWrapper) getCredentials(namespace string, channel chan *Credential) error {
+func (client *HTTPClientWrapper) getCredentials(namespace string) (*Credential, error) {
+	//First, check if the jwt is valid
+	if t := time.Now(); t.After(client.JWTExpiry) {
+		//jwt invalid, refetch
+		fmt.Print("fetching new jwt")
+		jwt, jwtExpiry, err := client.getJWT()
+		if err != nil {
+			return nil, err
+		}
+		client.JWT = jwt
+		client.JWTExpiry = jwtExpiry
+	}
+
 	req, _ := http.NewRequest(
 		"GET",
 		client.Config.AuthZurl,
@@ -119,10 +202,8 @@ func (client *HTTPClientWrapper) getCredentials(namespace string, channel chan *
 		json.Unmarshal(bodyBytes, &credentials)
 		credentials.ValidUntil = time.Now().Add(time.Duration(client.Config.CacheExpiry) * time.Second)
 
-		channel <- &credentials
-
-		return nil
+		return &credentials, nil
 	}
-	return fmt.Errorf("Non-200 response from authZ")
+	return nil, fmt.Errorf("Non-200 response from authZ, received %d instead", resp.StatusCode)
 	//some form of timeout here would be good
 }

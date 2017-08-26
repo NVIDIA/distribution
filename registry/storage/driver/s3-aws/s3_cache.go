@@ -52,13 +52,13 @@ func Initialize(defaultParameters map[string]interface{}) (*Cache, error) {
 	}, nil
 }
 
-func (c *Cache) getParams(namespace string) (map[string]interface{}, bool) {
+func (c *Cache) getParams(namespace string) (map[string]interface{}, error) {
 
 	m := c.returnDefaultParamCopy()
 
 	if params, ok := checkCacheAndUpdate(c.CredentialCache, m, namespace); ok {
 		fmt.Print("most thread should hit this case")
-		return params, true
+		return params, nil
 	}
 
 	actual, _ := c.MutexMap.LoadOrStore(namespace, &sync.Mutex{})
@@ -69,27 +69,29 @@ func (c *Cache) getParams(namespace string) (map[string]interface{}, bool) {
 
 		if params, ok := checkCacheAndUpdate(c.CredentialCache, m, namespace); ok {
 			l.Unlock()
-			return params, true
+			return params, nil
 		}
 
 		//I... am not sure if this part is necessary. Since a thread at this point in time is just
 		//holding the mutex for this namespace, and every other request for this namespace has to wait
 		//for the results of this call to GetCredentials anyway.
 		//Can probably just replace with c.CredentialCache.Store(namespace,c.Client.getCredentials(namespace))
-		credChan := make(chan *Credential)
-		go c.Client.getCredentials(namespace, credChan)
 
-		credential := <-credChan
+		credential, err := c.Client.getCredentials(namespace)
+
+		if err != nil {
+			return nil, err
+		}
 
 		c.CredentialCache.Store(namespace, credential)
 		l.Unlock()
 	}
 
 	if params, ok := checkCacheAndUpdate(c.CredentialCache, m, namespace); ok {
-		return params, true
+		return params, nil
 	}
 
-	return m, false
+	return m, fmt.Errorf("Failed to fetch mutex for namespace %s", namespace)
 }
 
 func checkCacheAndUpdate(credentialCache *syncmap.Map, m map[string]interface{}, namespace string) (map[string]interface{}, bool) {

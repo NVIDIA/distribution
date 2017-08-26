@@ -1311,10 +1311,10 @@ func (w *writer) flushPart() error {
 func getParamsFromContext(ctx context.Context) (map[string]interface{}, error) {
 	if path, ok := ctx.Value("URI").(string); ok {
 		namespace := strings.Split(path, "/")[2]
-		params, ok := cache.getParams(namespace)
+		params, err := cache.getParams(namespace)
 
-		if !ok {
-			return nil, fmt.Errorf("Failed to get parameters")
+		if err != nil {
+			return nil, err
 		}
 		return params, nil
 	}
