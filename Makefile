@@ -71,9 +71,9 @@ build:
 	@echo "+ $@"
 	@go build -tags "${DOCKER_BUILDTAGS}" -v ${GO_LDFLAGS} $(PKGS)
 
-test:
-	@echo "+ $@"
-	@go test -test.short -tags "${DOCKER_BUILDTAGS}" $(PKGS)
+#test:
+#	@echo "+ $@"
+#	@go test -test.short -tags "${DOCKER_BUILDTAGS}" $(PKGS)
 
 test-full:
 	@echo "+ $@"

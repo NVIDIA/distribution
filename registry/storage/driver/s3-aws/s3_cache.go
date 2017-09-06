@@ -72,11 +72,6 @@ func (c *Cache) getParams(namespace string) (map[string]interface{}, error) {
 			return params, nil
 		}
 
-		//I... am not sure if this part is necessary. Since a thread at this point in time is just
-		//holding the mutex for this namespace, and every other request for this namespace has to wait
-		//for the results of this call to GetCredentials anyway.
-		//Can probably just replace with c.CredentialCache.Store(namespace,c.Client.getCredentials(namespace))
-
 		credential, err := c.Client.getCredentials(namespace)
 
 		if err != nil {
@@ -98,14 +93,14 @@ func checkCacheAndUpdate(credentialCache *syncmap.Map, m map[string]interface{},
 	if v, ok := credentialCache.Load(namespace); ok {
 		if c, ok := v.(*Credential); ok {
 			if t := time.Now(); t.After(c.ValidUntil) {
-				fmt.Println("now invalid, fetch again")
+				fmt.Println("credentials timed out, fetch again")
 				return m, false
 			}
+
 			m["bucket"] = c.Bucket
 			m["accesskey"] = c.Access
 			m["secretkey"] = c.Secret
-			fmt.Print(m)
-			//can return here
+
 			return m, true
 		}
 		//this case bears some thought. it  can hit here if bad credentials are stored!!

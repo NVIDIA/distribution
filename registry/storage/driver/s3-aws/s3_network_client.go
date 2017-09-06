@@ -8,6 +8,7 @@ import (
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -27,6 +28,9 @@ type HTTPClientWrapper struct {
 
 	//JWTExpiry represents the expiry time of the current JWT in storage
 	JWTExpiry time.Time
+
+	//JWTLock blocks all requests while waiting for JWT from AuthN
+	JWTLock *sync.Mutex
 }
 
 type conf struct {
@@ -48,7 +52,6 @@ type conf struct {
 type token struct {
 	Token string `json:"token"`
 }
-
 
 //getConfig searches for necessary access parameters on disk
 func getConfig() (*conf, error) {
@@ -82,6 +85,7 @@ func NewClient() (*HTTPClientWrapper, error) {
 		Client:    &http.Client{},
 		Config:    c,
 		JWTExpiry: time.Time{},
+		JWTLock:   &sync.Mutex{},
 	}
 
 	return client, nil
@@ -106,7 +110,7 @@ func (client *HTTPClientWrapper) getJWT() (string, time.Time, error) {
 		bodyBytes, _ := ioutil.ReadAll(resp.Body)
 
 		var t token
-		json.Unmarshal(bodyBytes,&t)
+		json.Unmarshal(bodyBytes, &t)
 
 		jwtExpiry, err := client.getJWTExpiry(t.Token)
 
@@ -120,7 +124,7 @@ func (client *HTTPClientWrapper) getJWT() (string, time.Time, error) {
 }
 
 func (client *HTTPClientWrapper) getJWTExpiry(jwt string) (time.Time, error) {
-	token, err := JWT.ParseWithClaims(jwt,&JWT.StandardClaims{}, func(token *JWT.Token) (interface{}, error) {
+	token, err := JWT.ParseWithClaims(jwt, &JWT.StandardClaims{}, func(token *JWT.Token) (interface{}, error) {
 
 		pubkey, err := client.getPublicKey()
 		if err != nil {
@@ -140,11 +144,12 @@ func (client *HTTPClientWrapper) getJWTExpiry(jwt string) (time.Time, error) {
 				claims.ExpiresAt-claims.IssuedAt-client.Config.JWTValidityOffset) * time.Second), nil
 	}
 
-	if !token.Valid{
-		return  time.Time{},fmt.Errorf("Token invalid")
-	}else {
-		return time.Time{},fmt.Errorf("Claims malformed")
+	if !token.Valid {
+		return time.Time{}, fmt.Errorf("Token invalid")
 	}
+
+	return time.Time{}, fmt.Errorf("Claims malformed")
+
 }
 
 func (client *HTTPClientWrapper) getPublicKey() (*rsa.PublicKey, error) {
@@ -175,14 +180,21 @@ func (client *HTTPClientWrapper) getPublicKey() (*rsa.PublicKey, error) {
 func (client *HTTPClientWrapper) getCredentials(namespace string) (*Credential, error) {
 	//First, check if the jwt is valid
 	if t := time.Now(); t.After(client.JWTExpiry) {
-		//jwt invalid, refetch
-		fmt.Print("fetching new jwt")
-		jwt, jwtExpiry, err := client.getJWT()
-		if err != nil {
-			return nil, err
+
+		client.JWTLock.Lock()
+		//Second layer check to prevent redundant calls
+		if t := time.Now(); t.After(client.JWTExpiry) {
+			fmt.Print("fetching new jwt")
+			jwt, jwtExpiry, err := client.getJWT()
+			if err != nil {
+				client.JWTLock.Unlock()
+				return nil, err
+			}
+			client.JWT = jwt
+			client.JWTExpiry = jwtExpiry
 		}
-		client.JWT = jwt
-		client.JWTExpiry = jwtExpiry
+
+		client.JWTLock.Unlock()
 	}
 
 	req, _ := http.NewRequest(
